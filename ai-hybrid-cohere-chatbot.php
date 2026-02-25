@@ -268,7 +268,7 @@ class AI_Support_Chatbot {
 
         foreach ($posts as $post_id) {
             $post = get_post($post_id);
-            $content = $post->post_title . ' ' . wp_trim_words($post->post_content, 300);
+            $content = $post->post_title . ' ' . wp_trim_words($post->post_content, 1000);
             
             $embedding = $this->generate_embedding($content);
             if ($embedding === false) {
@@ -294,7 +294,7 @@ class AI_Support_Chatbot {
         }
 
         // Add a note to check error logs
-        $message .= "\n\nPlease check your WordPress error log (wp-content/debug.log if WP_DEBUG enabled) for detailed API errors.";
+        // $message .= "\n\nPlease check your WordPress error log (wp-content/debug.log if WP_DEBUG enabled) for detailed API errors.";
 
         echo nl2br(esc_html($message));
         wp_die();
@@ -348,26 +348,23 @@ class AI_Support_Chatbot {
      * Hybrid search: combine keyword (WP search) and semantic.
      */
     private function hybrid_search($query, $limit = 5) {
-        // First try WP keyword search
         $wp_results = get_posts([
             's'              => $query,
-            'posts_per_page' => $limit,
+            'posts_per_page' => $limit * 2, // get more for merging
             'post_type'      => $this->post_types,
             'post_status'    => 'publish'
         ]);
 
-        // If enough results, return them
-        if (count($wp_results) >= $limit) {
-            return array_slice($wp_results, 0, $limit);
-        }
+        $semantic = $this->semantic_search($query, $limit * 2);
 
-        // Otherwise, supplement with semantic search
-        $semantic = $this->semantic_search($query, $limit);
+        // Merge and deduplicate
         $merged = array_merge($wp_results, $semantic);
         $unique = [];
         foreach ($merged as $p) {
             $unique[$p->ID] = $p;
         }
+
+        // Optionally re-rank by relevance (semantic score) – here we just take first $limit
         return array_slice($unique, 0, $limit);
     }
 
@@ -443,7 +440,7 @@ class AI_Support_Chatbot {
         $context = '';
         foreach ($posts as $post) {
             $context .= "Title: " . $post->post_title . "\n";
-            $context .= "Content: " . wp_trim_words($post->post_content, 200) . "\n\n";
+            $context .= "Content: " . wp_trim_words($post->post_content, 1000) . "\n\n";
         }
 
         if (empty($context)) {
