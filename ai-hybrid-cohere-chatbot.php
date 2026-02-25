@@ -620,6 +620,7 @@ class AI_Support_Chatbot {
 
             /* Message bubbles (optional) */
             #ai-chat-box div {
+                white-space: pre-wrap;
                 margin-bottom: 8px;
                 line-height: 1.4;
             }
