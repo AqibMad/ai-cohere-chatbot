@@ -641,7 +641,7 @@ class AI_Support_Chatbot {
 
                 const typingDiv = document.createElement('div');
                 typingDiv.className = 'chat-message chat-ai chat-typing';
-                typingDiv.innerHTML = '<b>AI:</b> typing...';
+                typingDiv.innerHTML = '<b>Agent:</b> typing...';
                 chatBox.appendChild(typingDiv);
 
                 try {
@@ -655,10 +655,10 @@ class AI_Support_Chatbot {
                     typingDiv.remove();
 
                     if (result.success) {
-                        chatBox.innerHTML += `<div class="chat-message chat-ai"><b>AI:</b> ${escapeHtml(result.data.text)}</div>`;
+                        chatBox.innerHTML += `<div class="chat-message chat-ai"><b>Agent:</b> ${escapeHtml(result.data.text)}</div>`;
                         history.push({ role: 'assistant', content: result.data.text });
                     } else {
-                        chatBox.innerHTML += `<div class="chat-message chat-ai"><b>AI:</b> ${escapeHtml(result.data.text)}</div>`;
+                        chatBox.innerHTML += `<div class="chat-message chat-ai"><b>Agent:</b> ${escapeHtml(result.data.text)}</div>`;
                     }
 
                     chatBox.scrollTop = chatBox.scrollHeight;
@@ -666,7 +666,7 @@ class AI_Support_Chatbot {
 
                 } catch (err) {
                     typingDiv.remove();
-                    chatBox.innerHTML += `<div class="chat-message chat-ai chat-typing"><b>AI:</b> Connection error. Try again.</div>`;
+                    chatBox.innerHTML += `<div class="chat-message chat-ai chat-typing"><b>Agent:</b> Connection error. Try again.</div>`;
                 }
             }
 
