@@ -235,10 +235,6 @@ class AI_Support_Chatbot {
             'timeout' => 60
         ]);
 
-        // Remove the debug lines below after testing!
-        // print_r($response);
-        // wp_die();
-
         if (is_wp_error($response)) {
             error_log('AI Chatbot: WP_Error - ' . $response->get_error_message());
             return false;
