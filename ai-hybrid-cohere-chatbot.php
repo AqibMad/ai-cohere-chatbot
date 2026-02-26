@@ -23,8 +23,8 @@ class AI_Support_Chatbot {
         $this->api_key              = get_option('ai_cohere_api_key', '');
         $this->embedding_model      = get_option('ai_embedding_model', 'embed-english-v2.0');
         $this->chat_model           = get_option('ai_chat_model', 'command-a-03-2025');
-        $this->search_limit         = get_option('ai_search_limit', 5);
-        $this->similarity_threshold = get_option('ai_similarity_threshold', 0.7);
+        $this->search_limit         = get_option('ai_search_limit', 10);
+        $this->similarity_threshold = get_option('ai_similarity_threshold', 0.5);
         $this->post_types           = get_option('ai_post_types', ['post', 'page']);
         $this->max_history          = get_option('ai_max_history', 5); // number of previous messages to keep
 
