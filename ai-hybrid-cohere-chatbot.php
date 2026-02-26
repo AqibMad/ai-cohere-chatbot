@@ -1,6 +1,6 @@
 <?php
 /*
-Plugin Name: AI Support Chatbot (Cohere + WP Content)
+Plugin Name: AI Support Chatbot
 Description: 24/7 AI support chatbot that answers only from your WordPress posts/pages.
 Version: 2.0
 Author: Your Name
@@ -29,10 +29,16 @@ class AI_Support_Chatbot {
         $this->max_history          = get_option('ai_max_history', 5); // number of previous messages to keep
 
         register_activation_hook(__FILE__, [$this, 'create_table']);
+        register_activation_hook(__FILE__, [$this, 'activate_cron']);   // new
+        register_deactivation_hook(__FILE__, [$this, 'deactivate_cron']); // new
+
+        add_filter('cron_schedules', [$this, 'add_cron_interval']);
+
         add_action('admin_menu', [$this, 'admin_menu']);
         add_action('wp_ajax_ai_generate_embeddings', [$this, 'generate_embeddings']);
         add_action('wp_ajax_ai_stream_chat', [$this, 'stream_chat']);
         add_action('wp_ajax_nopriv_ai_stream_chat', [$this, 'stream_chat']);
+        add_action('ai_hourly_embedding_update', [$this, 'cron_generate_embeddings']); // new
         add_shortcode('ai_chatbot', [$this, 'chatbot_ui']);
     }
 
@@ -51,6 +57,33 @@ class AI_Support_Chatbot {
             embedding LONGTEXT NOT NULL,
             UNIQUE KEY post_id (post_id)
         ) $charset;");
+    }
+
+    /* -----------------------------------------------
+       Add custom cron schedule for 10 minutes.
+    ----------------------------------------------- */
+    public function add_cron_interval($schedules) {
+        $schedules['every_ten_minutes'] = [
+            'interval' => 600, // 10 minutes in seconds
+            'display'  => __('Every 10 Minutes')
+        ];
+        return $schedules;
+    }
+    
+    /* -----------------------------------------------
+       Schedule hourly cron on plugin activation.
+    ----------------------------------------------- */
+    public function activate_cron() {
+        if (!wp_next_scheduled('ai_hourly_embedding_update')) {
+            wp_schedule_event(time(), 'every_ten_minutes', 'ai_hourly_embedding_update');
+        }
+    }
+
+    /* -----------------------------------------------
+       Clear cron on deactivation.
+    ----------------------------------------------- */
+    public function deactivate_cron() {
+        wp_clear_scheduled_hook('ai_hourly_embedding_update');
     }
 
     /* -----------------------------------------------
@@ -499,11 +532,64 @@ class AI_Support_Chatbot {
     }
 
     /* -----------------------------------------------
+       Cron job to generate embeddings silently (no output).
+    ----------------------------------------------- */
+    
+    public function cron_generate_embeddings() {
+        // Prevent running if API key missing
+        if (empty($this->api_key)) {
+            error_log('AI Chatbot Cron: API key missing. Skipping embedding generation.');
+            return;
+        }
+
+        global $wpdb;
+        $post_types = get_option('ai_post_types', ['post', 'page']);
+        if (empty($post_types)) {
+            error_log('AI Chatbot Cron: No post types selected.');
+            return;
+        }
+
+        $posts = get_posts([
+            'post_type'      => $post_types,
+            'posts_per_page' => -1,
+            'post_status'    => 'publish',
+            'fields'         => 'ids',
+        ]);
+
+        if (empty($posts)) {
+            error_log('AI Chatbot Cron: No published posts found.');
+            return;
+        }
+
+        $table = $wpdb->prefix . 'ai_post_embeddings';
+        $success = 0;
+        $errors = 0;
+
+        foreach ($posts as $post_id) {
+            $post = get_post($post_id);
+            $content = $post->post_title . ' ' . wp_trim_words($post->post_content, 1000);
+            
+            $embedding = $this->generate_embedding($content);
+            if ($embedding === false) {
+                $errors++;
+                continue;
+            }
+
+            $wpdb->replace($table, [
+                'post_id'   => $post_id,
+                'embedding' => json_encode($embedding)
+            ]);
+            $success++;
+        }
+
+        error_log("AI Chatbot Cron: Completed. Success: $success, Errors: $errors");
+    }
+
+    /* -----------------------------------------------
        FRONTEND UI (with history)
     ----------------------------------------------- */
 
     public function chatbot_ui() {
-        // Generate a unique session ID for this browser (for history) – not used but kept
         $session_id = 'chat_' . md5($_SERVER['REMOTE_ADDR'] . $_SERVER['HTTP_USER_AGENT']);
         ob_start();
         ?>
@@ -533,9 +619,7 @@ class AI_Support_Chatbot {
                 justify-content: center;
                 transition: transform 0.2s;
             }
-            #ai-chat-toggle:hover {
-                transform: scale(1.1);
-            }
+            #ai-chat-toggle:hover { transform: scale(1.1); }
 
             /* Chat Panel */
             #ai-chat-panel {
@@ -545,16 +629,14 @@ class AI_Support_Chatbot {
                 width: 350px;
                 max-width: calc(100vw - 40px);
                 background-color: white;
-                border-radius: 8px 8px 8px 8px;
+                border-radius: 8px;
                 box-shadow: 0 5px 20px rgba(0,0,0,0.2);
                 overflow: hidden;
                 display: none;
                 flex-direction: column;
                 border: 1px solid #ddd;
             }
-            #ai-chat-panel.open {
-                display: flex;
-            }
+            #ai-chat-panel.open { display: flex; }
 
             /* Panel Header */
             #ai-chat-header {
@@ -575,13 +657,16 @@ class AI_Support_Chatbot {
                 line-height: 1;
             }
 
-            /* Chat Box (messages area) */
+            /* Chat Box */
             #ai-chat-box {
+                display: flex;
+                flex-direction: column;
                 height: 350px;
                 overflow-y: auto;
                 padding: 12px;
                 background-color: #f9f9f9;
                 border-bottom: 1px solid #eee;
+                font-size: 14px;
             }
 
             /* Input area */
@@ -600,9 +685,7 @@ class AI_Support_Chatbot {
                 font-size: 14px;
                 color: #414042;
             }
-            #ai-chat-input:focus {
-                border-color: #dd7500;
-            }
+            #ai-chat-input:focus { border-color: #dd7500; }
             #ai-chat-send {
                 background-color: #dd7500;
                 color: white;
@@ -614,29 +697,41 @@ class AI_Support_Chatbot {
                 font-weight: bold;
                 font-size: 14px;
             }
-            #ai-chat-send:hover {
-                background-color: #c46400;
-            }
+            #ai-chat-send:hover { background-color: #c46400; }
 
-            /* Message bubbles (optional) */
-            #ai-chat-box div {
+            /* Chat messages */
+            .chat-message {
                 white-space: pre-wrap;
-                margin-bottom: 8px;
+                margin-bottom: 10px;
+                padding: 10px 14px;
+                border-radius: 18px;
+                max-width: 75%;
+                word-wrap: break-word;
+                font-size: 14px;
+                display: inline-block;
                 line-height: 1.4;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             }
-            #ai-chat-box b {
+            .chat-user {
+                background-color: #ffe5b3;
                 color: #414042;
+                align-self: flex-end;
+                text-align: right;
             }
-            #ai-typing i {
+            .chat-ai {
+                background-color: #e1f0ff;
+                color: #000;
+                align-self: flex-start;
+                text-align: left;
+            }
+            .chat-typing {
+                font-style: italic;
                 color: #888;
             }
         </style>
 
         <div id="ai-chat-widget">
-            <!-- Toggle button -->
             <button id="ai-chat-toggle" aria-label="Open chat">💬</button>
-
-            <!-- Chat panel (hidden by default) -->
             <div id="ai-chat-panel">
                 <div id="ai-chat-header">
                     <span>Support Chat</span>
@@ -661,21 +756,22 @@ class AI_Support_Chatbot {
 
             let history = [];
 
-            // Load history from sessionStorage
+            // Load chat history
             const saved = sessionStorage.getItem('ai_chat_history');
             if (saved) {
                 try {
                     history = JSON.parse(saved);
                     history.forEach(msg => {
+                        const cls = msg.role === 'user' ? 'chat-user' : 'chat-ai';
                         const sender = msg.role === 'user' ? 'You' : 'AI';
-                        chatBox.innerHTML += `<div><b>${sender}:</b> ${escapeHtml(msg.content)}</div>`;
+                        chatBox.innerHTML += `<div class="chat-message ${cls}"><b>${sender}:</b> ${escapeHtml(msg.content)}</div>`;
                     });
                     chatBox.scrollTop = chatBox.scrollHeight;
                 } catch (e) {}
             }
 
             function escapeHtml(unsafe) {
-                return unsafe.replace(/[&<>"]/g, function(m) {
+                return unsafe.replace(/[&<>"]/g, m => {
                     if (m === '&') return '&amp;';
                     if (m === '<') return '&lt;';
                     if (m === '>') return '&gt;';
@@ -688,22 +784,21 @@ class AI_Support_Chatbot {
                 const msg = input.value.trim();
                 if (!msg) return;
 
-                chatBox.innerHTML += `<div><b>You:</b> ${escapeHtml(msg)}</div>`;
+                chatBox.innerHTML += `<div class="chat-message chat-user"><b>You:</b> ${escapeHtml(msg)}</div>`;
                 chatBox.scrollTop = chatBox.scrollHeight;
                 input.value = '';
 
                 history.push({ role: 'user', content: msg });
 
                 const typingDiv = document.createElement('div');
-                typingDiv.innerHTML = '<b>AI:</b> <i>typing...</i>';
+                typingDiv.className = 'chat-message chat-ai chat-typing';
+                typingDiv.innerHTML = '<b>AI:</b> typing...';
                 chatBox.appendChild(typingDiv);
 
                 try {
                     const response = await fetch("<?php echo admin_url('admin-ajax.php'); ?>", {
                         method: "POST",
-                        headers: {
-                            "Content-Type": "application/x-www-form-urlencoded"
-                        },
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
                         body: new URLSearchParams({
                             action: "ai_stream_chat",
                             message: msg,
@@ -712,14 +807,13 @@ class AI_Support_Chatbot {
                     });
 
                     const result = await response.json();
-
                     typingDiv.remove();
 
                     if (result.success) {
-                        chatBox.innerHTML += `<div><b>AI:</b> ${escapeHtml(result.data.text)}</div>`;
+                        chatBox.innerHTML += `<div class="chat-message chat-ai"><b>AI:</b> ${escapeHtml(result.data.text)}</div>`;
                         history.push({ role: 'assistant', content: result.data.text });
                     } else {
-                        chatBox.innerHTML += `<div><b>AI:</b> ${escapeHtml(result.data.text)}</div>`;
+                        chatBox.innerHTML += `<div class="chat-message chat-ai"><b>AI:</b> ${escapeHtml(result.data.text)}</div>`;
                     }
 
                     chatBox.scrollTop = chatBox.scrollHeight;
@@ -727,23 +821,14 @@ class AI_Support_Chatbot {
 
                 } catch (err) {
                     typingDiv.remove();
-                    chatBox.innerHTML += `<div><b>AI:</b> <i>Connection error. Try again.</i></div>`;
+                    chatBox.innerHTML += `<div class="chat-message chat-ai chat-typing"><b>AI:</b> Connection error. Try again.</div>`;
                 }
             }
 
-            // Toggle panel open/close
-            toggleBtn.addEventListener('click', () => {
-                panel.classList.add('open');
-            });
-
-            closeBtn.addEventListener('click', () => {
-                panel.classList.remove('open');
-            });
-
+            toggleBtn.addEventListener('click', () => panel.classList.add('open'));
+            closeBtn.addEventListener('click', () => panel.classList.remove('open'));
             sendBtn.addEventListener('click', sendMessage);
-            input.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') sendMessage();
-            });
+            input.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
         })();
         </script>
         <?php
