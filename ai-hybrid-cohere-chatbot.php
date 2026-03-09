@@ -539,142 +539,415 @@ class AI_Support_Chatbot {
         ob_start();
         ?>
         <style>
-            #ai-chat-widget {
-                position: fixed;
-                bottom: 20px;
-                right: 20px;
-                z-index: 9999;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            :root{--brand-start:#ff8a00;--brand-end:#dd7500;--brand-dark:#c46400;--muted:#6b7280;--bg:#ffffff;--panel-bg:#fbfbfd;--bubble-user:#FFE8C2;--bubble-ai:#ffffff;--radius:14px;--shadow:0 20px 50px rgba(12,15,20,0.12);--font:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial}
+            #ai-chat-widget{position:fixed;bottom:22px;right:22px;z-index:99999;font-family:var(--font);-webkit-font-smoothing:antialiased}
+            #ai-chat-toggle{width:68px;height:68px;border-radius:50%;background:linear-gradient(135deg,var(--brand-start),var(--brand-end));border:none;color:#fff;font-size:28px;cursor:pointer;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;transition:transform .16s ease,box-shadow .16s ease}
+            #ai-chat-toggle:focus{outline:3px solid rgba(255,138,0,.18)}
+            #ai-chat-toggle:hover{transform:translateY(-3px);box-shadow:0 28px 60px rgba(12,15,20,.18)}
+            #ai-unread-badge{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;background:#ff3860;color:#fff;font-size:12px;border-radius:999px;display:flex;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 6px 16px rgba(0,0,0,.12)}
+            #ai-chat-panel{position:absolute;bottom:90px;right:0;width:420px;max-width:calc(100vw - 34px);background:var(--panel-bg);border-radius:var(--radius);overflow:hidden;display:none;flex-direction:column;box-shadow:0 40px 80px rgba(12,15,20,.16);border:1px solid rgba(16,24,40,.04)}
+            #ai-chat-panel.open{display:flex}
+            #ai-chat-header{background:linear-gradient(90deg,var(--brand-start),var(--brand-end));color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px;justify-content:space-between}
+            #ai-chat-header .left{display:flex;align-items:center;gap:12px}
+            #ai-chat-header h4{margin:0;font-size:15px;letter-spacing:.2px}
+            #ai-chat-header p{margin:0;font-size:12px;opacity:.95;color:rgba(255,255,255,.92)}
+            #ai-chat-header .actions{display:flex;gap:8px;align-items:center}
+            #ai-chat-close{background:0 0;border:none;color:rgba(255,255,255,.95);font-size:18px;cursor:pointer}
+            #ai-widget-body{display:flex;flex-direction:column;gap:0}
+            #ai-user-form{padding:18px;background:linear-gradient(180deg,rgba(255,138,0,.04),transparent);display:flex;flex-direction:column;gap:10px}
+            #ai-user-form h3{margin:0;font-size:16px}
+            #ai-user-form p{margin:0;color:var(--muted);font-size:13px}
+            .ai-field-row{display:flex;gap:8px}
+            .ai-field{flex:1;display:flex;flex-direction:column;gap:6px}
+            .ai-field input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #e6e7eb;background:#fff;font-size:14px;transition:box-shadow .12s ease,border-color .12s ease}
+            .ai-field input:focus{outline:0;border-color:var(--brand-end);box-shadow:0 6px 18px rgba(221,117,0,.08)}
+            .ai-error{color:#d23;font-size:12px;height:14px}
+            #ai-start-chat{margin-top:6px;background:linear-gradient(90deg,var(--brand-end),var(--brand-dark));border:none;color:#fff;padding:10px 12px;border-radius:10px;cursor:pointer;font-weight:600}
+            #ai-start-chat[disabled]{opacity:.6;cursor:not-allowed}
+            #ai-chat-area{display:flex;flex-direction:column;height:520px;min-height:380px}
+            #ai-chat-box{flex:1;overflow:auto;padding:18px;background:linear-gradient(180deg,#f8fafc,#f7f8fb);display:flex;flex-direction:column;gap:12px}
+            .msg-row{display:flex;gap:10px;align-items:flex-end;max-width:100%}
+            .msg-row.ai{align-self:flex-start}
+            .msg-row.user{align-self:flex-end;justify-content:flex-end}
+            .msg-avatar{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff}
+            .avatar-ai{background:linear-gradient(90deg,var(--brand-start),var(--brand-end))}
+            .avatar-user{background:#64748b}
+            .bubble{max-width:78%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.4;box-shadow:0 6px 18px rgba(12,15,20,.04);position:relative}
+            .bubble.ai{background:var(--bubble-ai);border:1px solid rgba(14,20,30,.03)}
+            .bubble.user{background:var(--bubble-user)}
+            .bubble .meta{display:flex;gap:8px;align-items:center;margin-top:6px;font-size:12px;color:var(--muted)}
+            .bubble .meta time{opacity:.9}
+            .typing-dots{width:46px;height:18px;display:flex;gap:6px;align-items:center;justify-content:center}
+            .typing-dots span{display:block;width:7px;height:7px;border-radius:50%;background:rgba(99,102,241,.18);animation:blink 1s infinite}
+            .typing-dots span:nth-child(2){animation-delay:.12s}
+            .typing-dots span:nth-child(3){animation-delay:.24s}
+            @keyframes blink{
+            0%{opacity:.2}
+            50%{opacity:1}
+            100%{opacity:.2}
             }
-            #ai-chat-toggle {
-                width: 60px; height: 60px; border-radius: 50%; background-color: #dd7500; color: white; border: none;
-                cursor: pointer; box-shadow: 0 4px 8px rgba(0,0,0,0.2); font-size: 28px;
-                display: flex; align-items: center; justify-content: center; transition: transform 0.2s;
+            #ai-chat-input-area{display:flex;gap:10px;padding:12px;border-top:1px solid rgba(14,20,30,.04);background:#fff;align-items:center}
+            #ai-chat-input{flex:1;padding:10px 14px;border-radius:999px;border:1px solid #e6e7eb;font-size:14px;min-height:42px}
+            #ai-chat-send{background:linear-gradient(90deg,var(--brand-start),var(--brand-end));color:#fff;border:none;padding:10px 14px;border-radius:999px;cursor:pointer;font-weight:600;box-shadow:0 8px 22px rgba(221,117,0,.12)}
+            @media (max-width:520px){
+            #ai-chat-panel{right:12px;left:12px;width:auto;bottom:80px}
+            #ai-chat-area{height:520px}
             }
-            #ai-chat-toggle:hover { transform: scale(1.1); }
-            #ai-chat-panel {
-                position: absolute; bottom: 80px; right: 0; width: 350px; max-width: calc(100vw - 40px);
-                background-color: white; border-radius: 8px; box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-                overflow: hidden; display: none; flex-direction: column; border: 1px solid #ddd;
-            }
-            #ai-chat-panel.open { display: flex; }
-            #ai-chat-header {
-                background-color: #dd7500; color: white; padding: 12px 16px;
-                display: flex; justify-content: space-between; align-items: center; font-weight: bold;
-            }
-            #ai-chat-header button { background: none; border: none; color: white; font-size: 20px; cursor: pointer; line-height: 1; }
-            #ai-chat-box {
-                display: flex; flex-direction: column; height: 350px; overflow-y: auto; padding: 12px;
-                background-color: #f9f9f9; border-bottom: 1px solid #eee; font-size: 14px;
-            }
-            #ai-chat-input-area { display: flex; padding: 10px; background-color: white; border-top: 1px solid #eee; }
-            #ai-chat-input {
-                flex: 1; padding: 8px 12px; border: 1px solid #ccc; border-radius: 20px; outline: none;
-                font-size: 14px; color: #414042;
-            }
-            #ai-chat-input:focus { border-color: #dd7500; }
-            #ai-chat-send {
-                background-color: #dd7500; color: white; border: none; border-radius: 20px;
-                padding: 8px 16px; margin-left: 8px; cursor: pointer; font-weight: bold; font-size: 14px;
-            }
-            #ai-chat-send:hover { background-color: #c46400; }
-            .chat-message {
-                white-space: pre-wrap; margin-bottom: 10px; padding: 10px 14px; border-radius: 18px;
-                max-width: 100%; word-wrap: break-word; font-size: 14px; display: inline-block;
-                line-height: 1.4; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            }
-            .chat-user { background-color: #ffe5b3; color: #414042; align-self: flex-end; text-align: right; }
-            .chat-ai { background-color: #e1f0ff; color: #000; align-self: flex-start; text-align: left; }
-            .chat-typing { font-style: italic; color: #888; }
         </style>
+        <div id="ai-chat-widget" aria-live="polite">
+            <button id="ai-chat-toggle" aria-expanded="false" aria-controls="ai-chat-panel" aria-label="Open support chat">
+                💬
+                <span id="ai-unread-badge" style="display:none;">0</span>
+            </button>
 
-        <div id="ai-chat-widget">
-            <button id="ai-chat-toggle" aria-label="Open chat">💬</button>
-            <div id="ai-chat-panel">
-                <div id="ai-chat-header"><span>Support Chat</span><button id="ai-chat-close" aria-label="Close chat">✕</button></div>
-                <div id="ai-chat-box"></div>
-                <div id="ai-chat-input-area"><input type="text" id="ai-chat-input" placeholder="Type your question..." /><button id="ai-chat-send">Send</button></div>
+            <div id="ai-chat-panel" role="dialog" aria-modal="false" aria-label="AI support chat panel">
+                <div id="ai-chat-header">
+                    <div class="left">
+                        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <rect x="2" y="2" width="20" height="20" rx="6" fill="white" opacity="0.06"></rect>
+                            <path d="M4 12c0-4.418 3.582-8 8-8s8 3.582 8 8-3.582 8-8 8c-1.42 0-2.763-.328-3.96-.915L4 20l1.915-3.96A7.962 7.962 0 0 1 4 12z" fill="white" opacity="0.12"></path>
+                        </svg>
+                        <div>
+                            <h4>Support Chat</h4>
+                            <p>Answers from your site content — 24/7</p>
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <button id="ai-chat-close" aria-label="Close chat">✕</button>
+                    </div>
+                </div>
+
+                <div id="ai-widget-body">
+                    <div id="ai-user-form" role="form" aria-labelledby="welcome-title">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                            <div>
+                                <h3 id="welcome-title">👋 Welcome</h3>
+                                <p>Please enter your details to start a secure conversation.</p>
+                            </div>
+                        </div>
+
+                        <div class="ai-field-row">
+                            <div class="ai-field">
+                                <label class="sr-only" for="ai-user-name">Full name</label>
+                                <input id="ai-user-name" type="text" placeholder="Full name" autocomplete="name" />
+                                <div class="ai-error" data-for="name"></div>
+                            </div>
+                            <div class="ai-field">
+                                <label class="sr-only" for="ai-user-phone">Phone</label>
+                                <input id="ai-user-phone" type="tel" placeholder="Phone (optional)" autocomplete="tel" />
+                                <div class="ai-error" data-for="phone"></div>
+                            </div>
+                        </div>
+
+                        <div class="ai-field">
+                            <label class="sr-only" for="ai-user-email">Email</label>
+                            <input id="ai-user-email" type="email" placeholder="Email address" autocomplete="email" />
+                            <div class="ai-error" data-for="email"></div>
+                        </div>
+
+                        <div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
+                            <small style="color:var(--muted)">We only use this to personalize & save your conversation.</small>
+                            <button id="ai-start-chat">Start conversation</button>
+                        </div>
+                    </div>
+
+                    <div id="ai-chat-area" style="display:none;">
+                        <div id="ai-chat-box" role="log" aria-live="polite" aria-relevant="additions"></div>
+
+                        <div id="ai-chat-input-area">
+                            <input id="ai-chat-input" type="text" placeholder="Ask a question about our site, services, or docs..." aria-label="Type your question" />
+                            <button id="ai-chat-send" aria-label="Send message">Send</button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
-
         <script>
-        (function() {
-            const chatBox = document.getElementById('ai-chat-box');
-            const input = document.getElementById('ai-chat-input');
-            const sendBtn = document.getElementById('ai-chat-send');
-            const toggleBtn = document.getElementById('ai-chat-toggle');
-            const closeBtn = document.getElementById('ai-chat-close');
-            const panel = document.getElementById('ai-chat-panel');
+            (function(){
+                const ajaxUrl = "<?php echo esc_js(admin_url('admin-ajax.php')); ?>";
+                const widget = document.getElementById('ai-chat-widget');
+                const panel = document.getElementById('ai-chat-panel');
+                const toggleBtn = document.getElementById('ai-chat-toggle');
+                const closeBtn = document.getElementById('ai-chat-close');
+                const unreadBadge = document.getElementById('ai-unread-badge');
 
-            let history = [];
-            const saved = sessionStorage.getItem('ai_chat_history');
-            if (saved) {
+                const startBtn = document.getElementById('ai-start-chat');
+                const userForm = document.getElementById('ai-user-form');
+                const chatArea = document.getElementById('ai-chat-area');
+                const chatBox = document.getElementById('ai-chat-box');
+                const input = document.getElementById('ai-chat-input');
+                const sendBtn = document.getElementById('ai-chat-send');
+
+                // form fields & errors
+                const nameEl = document.getElementById('ai-user-name');
+                const emailEl = document.getElementById('ai-user-email');
+                const phoneEl = document.getElementById('ai-user-phone');
+
+                function elError(name, text){
+                    const el = document.querySelector('.ai-error[data-for="'+name+'"]');
+                    if(el) el.textContent = text || '';
+                }
+
+                function validateForm(){
+                    let ok = true;
+                    elError('name',''); elError('email',''); elError('phone','');
+                    if(!nameEl.value.trim()){ elError('name','Required'); ok = false; }
+                    if(!emailEl.value.trim()){ elError('email','Required'); ok = false; }
+                    else if(!/^\S+@\S+\.\S+$/.test(emailEl.value.trim())){ elError('email','Invalid email'); ok = false; }
+                    if(phoneEl.value.trim() && !/^[0-9+\-\s()]{5,20}$/.test(phoneEl.value.trim())){ elError('phone','Invalid phone'); ok = false; }
+                    return ok;
+                }
+
+                function escapeHtml(unsafe){
+                    if(!unsafe) return '';
+                    return unsafe.replace(/[&<>"]/g, function(m){
+                        if(m==='&') return '&amp;';
+                        if(m==='<') return '&lt;';
+                        if(m==='>') return '&gt;';
+                        if(m==='"') return '&quot;';
+                        return m;
+                    });
+                }
+
+                function formatTime(ts){
+                    try{
+                        const d = new Date(ts || Date.now());
+                        return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    }catch(e){ return ''; }
+                }
+
+                // history saved in sessionStorage (persist across open/refresh)
+                let history = [];
                 try {
-                    history = JSON.parse(saved);
+                    const raw = sessionStorage.getItem('ai_chat_history');
+                    if(raw) history = JSON.parse(raw) || [];
+                } catch(e){ history = []; }
+
+                // apply user info if exists
+                let userData = null;
+                try{
+                    const u = sessionStorage.getItem('ai_chat_user');
+                    if(u) userData = JSON.parse(u);
+                }catch(e){ userData = null; }
+
+                // unread count management
+                let unreadCount = 0;
+                function updateUnreadBadge(){
+                    if(unreadCount > 0){
+                        unreadBadge.style.display = 'flex';
+                        unreadBadge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+                    } else unreadBadge.style.display = 'none';
+                }
+                updateUnreadBadge();
+
+                // render history
+                function renderHistory(){
+                    chatBox.innerHTML = '';
                     history.forEach(msg => {
-                        const cls = msg.role === 'user' ? 'chat-user' : 'chat-ai';
-                        const sender = msg.role === 'user' ? 'You' : 'AI';
-                        chatBox.innerHTML += `<div class="chat-message ${cls}"><b>${sender}:</b> ${escapeHtml(msg.content)}</div>`;
+                        appendMessageToDOM(msg, false);
                     });
-                    chatBox.scrollTop = chatBox.scrollHeight;
-                } catch (e) {}
-            }
+                    scrollToBottom();
+                }
+                function scrollToBottom(){
+                    chatBox.scrollTo({ top: chatBox.scrollHeight + 200, behavior: 'smooth' });
+                }
 
-            function escapeHtml(unsafe) {
-                return unsafe.replace(/[&<>"]/g, m => {
-                    if (m === '&') return '&amp;';
-                    if (m === '<') return '&lt;';
-                    if (m === '>') return '&gt;';
-                    if (m === '"') return '&quot;';
-                    return m;
-                });
-            }
+                function createAvatar(role){
+                    const span = document.createElement('div');
+                    span.className = 'msg-avatar ' + (role === 'user' ? 'avatar-user' : 'avatar-ai');
+                    span.setAttribute('aria-hidden', 'true');
+                    span.textContent = role === 'user' ? (userData && userData.name ? userData.name.charAt(0).toUpperCase() : 'Y') : 'AI';
+                    return span;
+                }
 
-            async function sendMessage() {
-                const msg = input.value.trim();
-                if (!msg) return;
+                function appendMessageToDOM(message, incrementUnread = true){
+                    // message: { role: 'user'|'assistant', content, ts, isTyping? }
+                    const row = document.createElement('div');
+                    row.className = 'msg-row ' + (message.role === 'user' ? 'user' : 'ai');
 
-                chatBox.innerHTML += `<div class="chat-message chat-user"><b>You:</b> ${escapeHtml(msg)}</div>`;
-                chatBox.scrollTop = chatBox.scrollHeight;
-                input.value = '';
-                history.push({ role: 'user', content: msg });
+                    const bubble = document.createElement('div');
+                    bubble.className = 'bubble ' + (message.role === 'user' ? 'user' : 'ai');
 
-                const typingDiv = document.createElement('div');
-                typingDiv.className = 'chat-message chat-ai chat-typing';
-                typingDiv.innerHTML = '<b>Agent:</b> typing...';
-                chatBox.appendChild(typingDiv);
-
-                try {
-                    const response = await fetch("<?php echo admin_url('admin-ajax.php'); ?>", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                        body: new URLSearchParams({ action: "ai_stream_chat", message: msg, history: JSON.stringify(history) })
-                    });
-
-                    const result = await response.json();
-                    typingDiv.remove();
-
-                    if (result.success) {
-                        chatBox.innerHTML += `<div class="chat-message chat-ai"><b>Agent:</b> ${escapeHtml(result.data.text)}</div>`;
-                        history.push({ role: 'assistant', content: result.data.text });
+                    // content
+                    if(message.role === 'assistant' && message.isTyping){
+                        bubble.innerHTML = '<div class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></div><div style="font-size:12px;color:var(--muted);margin-top:6px">AI is typing…</div>';
                     } else {
-                        chatBox.innerHTML += `<div class="chat-message chat-ai"><b>Agent:</b> ${escapeHtml(result.data.text)}</div>`;
+                        bubble.innerHTML = '<div style="white-space:pre-wrap;">' + escapeHtml(message.content) + '</div>';
+                        const meta = document.createElement('div');
+                        meta.className = 'meta';
+                        meta.innerHTML = '<time datetime="'+(message.ts||'')+'">'+formatTime(message.ts)+'</time>';
+                        bubble.appendChild(meta);
                     }
 
-                    chatBox.scrollTop = chatBox.scrollHeight;
-                    sessionStorage.setItem('ai_chat_history', JSON.stringify(history));
+                    if(message.role === 'assistant'){
+                        row.appendChild(createAvatar('assistant'));
+                        row.appendChild(bubble);
+                    } else {
+                        row.appendChild(bubble);
+                        row.appendChild(createAvatar('user'));
+                    }
 
-                } catch (err) {
-                    typingDiv.remove();
-                    chatBox.innerHTML += `<div class="chat-message chat-ai chat-typing"><b>Agent:</b> Connection error. Try again.</div>`;
+                    chatBox.appendChild(row);
+
+                    if(incrementUnread && panel.classList.contains('open') === false && message.role === 'assistant'){
+                        unreadCount++;
+                        updateUnreadBadge();
+                    }
                 }
-            }
 
-            toggleBtn.addEventListener('click', () => panel.classList.add('open'));
-            closeBtn.addEventListener('click', () => panel.classList.remove('open'));
-            sendBtn.addEventListener('click', sendMessage);
-            input.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
-        })();
+                // initial render
+                renderHistory();
+
+                // toggle panel
+                toggleBtn.addEventListener('click', function(){
+                    const open = panel.classList.toggle('open');
+                    toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                    if(open){
+                        unreadCount = 0; updateUnreadBadge();
+                        if(userData && userData.name && userData.email){
+                            userForm.style.display = 'none';
+                            chatArea.style.display = 'flex';
+                        } else {
+                            userForm.style.display = 'flex';
+                            chatArea.style.display = 'none';
+                        }
+                        setTimeout(()=> { if(chatArea.style.display!=='none') input.focus(); }, 220);
+                    }
+                });
+
+                closeBtn.addEventListener('click', function(){ panel.classList.remove('open'); toggleBtn.setAttribute('aria-expanded','false'); });
+
+                // start conversation
+                startBtn.addEventListener('click', function(){
+                    if(!validateForm()) return;
+                    userData = {
+                        name: nameEl.value.trim(),
+                        email: emailEl.value.trim(),
+                        phone: phoneEl.value.trim()
+                    };
+                    try{ sessionStorage.setItem('ai_chat_user', JSON.stringify(userData)); }catch(e){}
+                    userForm.style.display = 'none';
+                    chatArea.style.display = 'flex';
+                    input.focus();
+
+                    // Optionally notify server to create a session (if you implement handler 'ai_save_chat_session')
+                    fetch(ajaxUrl, {
+                        method:'POST',
+                        headers: { 'Content-Type':'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({
+                            action: 'ai_save_chat_session',
+                            user: JSON.stringify(userData),
+                            initial: 'started'
+                        })
+                    }).catch(()=>{/* ignore errors if endpoint doesn't exist */});
+                });
+
+                // typing placeholder element reference
+                let typingPlaceholder = null;
+
+                // Helper: create a cleaned history array (no ts, no isTyping, role mapped to Cohere-safe)
+                function makeCleanHistoryFrom(historyArray){
+                    return (historyArray || []).filter(m => !m.isTyping).map(m => {
+                        const role = (m.role === 'user') ? 'USER' : (m.role === 'assistant' ? 'CHATBOT' : (m.role || '').toUpperCase());
+                        return {
+                            role: role,
+                            message: (m.content || m.message || '')
+                        };
+                    });
+                }
+
+                // send message
+                async function sendMessage(){
+                    const text = input.value.trim();
+                    if(!text) return;
+
+                    // push user message to local history (keep ts for local display only)
+                    const userMsg = { role: 'user', content: text, ts: new Date().toISOString() };
+                    history.push(userMsg);
+                    try{ sessionStorage.setItem('ai_chat_history', JSON.stringify(history)); }catch(e){}
+                    appendMessageToDOM(userMsg, false);
+                    input.value = '';
+                    scrollToBottom();
+
+                    // show typing placeholder
+                    const typingMsg = { role:'assistant', isTyping:true, ts: new Date().toISOString() };
+                    appendMessageToDOM(typingMsg, false);
+                    typingPlaceholder = chatBox.lastChild;
+
+                    // prepare a cleaned history to send to the server/Cohere (NO ts, NO isTyping)
+                    const cleanedHistory = makeCleanHistoryFrom(history);
+
+                    // send to server (existing endpoint)
+                    try {
+                        const resp = await fetch(ajaxUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: new URLSearchParams({
+                                action: 'ai_stream_chat',
+                                message: text,
+                                history: JSON.stringify(cleanedHistory), // <<--- cleaned, safe for Cohere
+                                user: userData ? JSON.stringify(userData) : ''
+                            })
+                        });
+
+                        const result = await resp.json();
+
+                        // remove typing placeholder
+                        if(typingPlaceholder) typingPlaceholder.remove();
+
+                        let answer = '';
+                        if (result && result.success && result.data && result.data.text){
+                            answer = result.data.text;
+                        } else if (result && result.data && result.data.text) {
+                            answer = result.data.text;
+                        } else {
+                            answer = 'Sorry — I could not get a response. Please try again.';
+                        }
+
+                        // push AI message to local history (keep ts locally)
+                        const aiMsg = { role: 'assistant', content: answer, ts: new Date().toISOString() };
+                        history.push(aiMsg);
+                        try{ sessionStorage.setItem('ai_chat_history', JSON.stringify(history)); }catch(e){}
+                        appendMessageToDOM(aiMsg, false);
+                        scrollToBottom();
+
+                        // Optionally save each message to server (handler 'ai_save_chat' expected)
+                        // NOTE: we send the message content & cleaned full history (no ts)
+                        fetch(ajaxUrl, {
+                            method:'POST',
+                            headers: { 'Content-Type':'application/x-www-form-urlencoded' },
+                            body: new URLSearchParams({
+                                action: 'ai_save_chat',
+                                user: JSON.stringify(userData || {}),
+                                message: JSON.stringify({ role: 'CHATBOT', message: answer }), // normalized
+                                full_history: JSON.stringify(makeCleanHistoryFrom(history))
+                            })
+                        }).catch(()=>{ /* ignore if not implemented */ });
+
+                    } catch (err){
+                        if(typingPlaceholder) typingPlaceholder.remove();
+                        const errMsg = { role:'assistant', content: 'Connection error. Please try again later.', ts: new Date().toISOString() };
+                        history.push(errMsg);
+                        try{ sessionStorage.setItem('ai_chat_history', JSON.stringify(history)); }catch(e){}
+                        appendMessageToDOM(errMsg, false);
+                        scrollToBottom();
+                    }
+                }
+
+                sendBtn.addEventListener('click', sendMessage);
+                input.addEventListener('keydown', function(e){
+                    if(e.key === 'Enter' && !e.shiftKey){
+                        e.preventDefault();
+                        sendMessage();
+                    }
+                });
+
+                document.addEventListener('keydown', function(e){
+                    if(e.key === 'Escape') panel.classList.remove('open');
+                });
+
+            })();
         </script>
         <?php
         return ob_get_clean();
