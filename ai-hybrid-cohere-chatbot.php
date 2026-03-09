@@ -41,7 +41,15 @@ class AI_Support_Chatbot {
         add_action('wp_ajax_ai_stream_chat', [$this, 'stream_chat']);
         add_action('wp_ajax_nopriv_ai_stream_chat', [$this, 'stream_chat']);
         add_action('ai_hourly_embedding_update', [$this, 'cron_generate_embeddings']);
+
+        add_action('wp_ajax_ai_save_chat_session', [$this,'save_chat_session']);
+        add_action('wp_ajax_nopriv_ai_save_chat_session', [$this,'save_chat_session']);
+
+        add_action('wp_ajax_ai_save_chat', [$this,'save_chat']);
+        add_action('wp_ajax_nopriv_ai_save_chat', [$this,'save_chat']);
+                
         add_shortcode('ai_chatbot', [$this, 'chatbot_ui']);
+
     }
 
     /* -----------------------------------------------
@@ -49,14 +57,42 @@ class AI_Support_Chatbot {
     ----------------------------------------------- */
     public function create_table() {
         global $wpdb;
-        $table = $wpdb->prefix . 'ai_post_embeddings';
+
         $charset = $wpdb->get_charset_collate();
+
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-        dbDelta("CREATE TABLE $table (
+
+        // embeddings table (existing)
+        $table1 = $wpdb->prefix . 'ai_post_embeddings';
+
+        dbDelta("CREATE TABLE $table1 (
             id BIGINT AUTO_INCREMENT PRIMARY KEY,
             post_id BIGINT NOT NULL,
             embedding LONGTEXT NOT NULL,
             UNIQUE KEY post_id (post_id)
+        ) $charset;");
+
+        // chat sessions table
+        $table2 = $wpdb->prefix . 'ai_chat_sessions';
+
+        dbDelta("CREATE TABLE $table2 (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(200),
+            email VARCHAR(200),
+            phone VARCHAR(50),
+            started_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        ) $charset;");
+
+        // chat messages table
+        $table3 = $wpdb->prefix . 'ai_chat_messages';
+
+        dbDelta("CREATE TABLE $table3 (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            session_id BIGINT NOT NULL,
+            role VARCHAR(20),
+            message LONGTEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            KEY session_id (session_id)
         ) $charset;");
     }
 
@@ -951,6 +987,68 @@ class AI_Support_Chatbot {
         </script>
         <?php
         return ob_get_clean();
+    }
+
+    public function save_chat_session() {
+
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'ai_chat_sessions';
+
+        $user = json_decode(stripslashes($_POST['user']), true);
+
+        if(!$user){
+            wp_send_json_error();
+        }
+
+        $name  = sanitize_text_field($user['name']);
+        $email = sanitize_email($user['email']);
+        $phone = sanitize_text_field($user['phone']);
+
+        $wpdb->insert($table,[
+            'name'=>$name,
+            'email'=>$email,
+            'phone'=>$phone
+        ]);
+
+        $session_id = $wpdb->insert_id;
+
+        wp_send_json_success([
+            'session_id'=>$session_id
+        ]);
+    }
+
+    public function save_chat(){
+
+        global $wpdb;
+
+        $session_table = $wpdb->prefix.'ai_chat_sessions';
+        $msg_table = $wpdb->prefix.'ai_chat_messages';
+
+        $user = json_decode(stripslashes($_POST['user']), true);
+        $message = json_decode(stripslashes($_POST['message']), true);
+
+        if(!$user || !$message){
+            wp_send_json_error();
+        }
+
+        // find existing session
+        $session = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM $session_table WHERE email=%s ORDER BY id DESC LIMIT 1",
+            $user['email']
+        ));
+
+        if(!$session){
+            wp_send_json_error();
+        }
+
+        $wpdb->insert($msg_table,[
+            'session_id'=>$session->id,
+            'role'=>sanitize_text_field($message['role']),
+            'message'=>sanitize_textarea_field($message['message'])
+        ]);
+
+        wp_send_json_success();
     }
 }
 
