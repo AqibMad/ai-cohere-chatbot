@@ -559,7 +559,7 @@ class AI_Support_Chatbot {
             #ai-user-form p{margin:0;color:var(--muted);font-size:13px}
             .ai-field-row{display:flex;gap:8px}
             .ai-field{flex:1;display:flex;flex-direction:column;gap:6px}
-            .ai-field input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #e6e7eb;background:#fff;font-size:14px;transition:box-shadow .12s ease,border-color .12s ease}
+            .ai-field input{width:100%;padding:15px 12px;border-radius:10px;border:1px solid #e6e7eb;background:#fff;font-size:14px;transition:box-shadow .12s ease,border-color .12s ease}
             .ai-field input:focus{outline:0;border-color:var(--brand-end);box-shadow:0 6px 18px rgba(221,117,0,.08)}
             .ai-error{color:#d23;font-size:12px;height:14px}
             #ai-start-chat{margin-top:6px;background:linear-gradient(90deg,var(--brand-end),var(--brand-dark));border:none;color:#fff;padding:10px 12px;border-radius:10px;cursor:pointer;font-weight:600}
@@ -647,7 +647,7 @@ class AI_Support_Chatbot {
                         </div>
 
                         <div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
-                            <small style="color:var(--muted)">We only use this to personalize & save your conversation.</small>
+                            <!-- <small style="color:var(--muted)">We only use this to personalize & save your conversation.</small> -->
                             <button id="ai-start-chat">Start conversation</button>
                         </div>
                     </div>
