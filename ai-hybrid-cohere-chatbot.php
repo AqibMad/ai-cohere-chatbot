@@ -580,7 +580,7 @@ class AI_Support_Chatbot {
             #ai-chat-send:hover { background-color: #c46400; }
             .chat-message {
                 white-space: pre-wrap; margin-bottom: 10px; padding: 10px 14px; border-radius: 18px;
-                max-width: 75%; word-wrap: break-word; font-size: 14px; display: inline-block;
+                max-width: 100%; word-wrap: break-word; font-size: 14px; display: inline-block;
                 line-height: 1.4; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             }
             .chat-user { background-color: #ffe5b3; color: #414042; align-self: flex-end; text-align: right; }
