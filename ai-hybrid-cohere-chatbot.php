@@ -47,6 +47,13 @@ class AI_Support_Chatbot {
 
         add_action('wp_ajax_ai_save_chat', [$this,'save_chat']);
         add_action('wp_ajax_nopriv_ai_save_chat', [$this,'save_chat']);
+
+        add_action('wp_ajax_ai_request_escalation', [$this,'request_escalation']);
+        add_action('wp_ajax_nopriv_ai_request_escalation', [$this,'request_escalation']);
+
+        add_action('wp_ajax_ai_agent_update_chat', [$this,'agent_update_chat']);
+        add_action('wp_ajax_ai_get_agent_chats', [$this,'get_agent_chats']);
+        add_action('wp_ajax_ai_mark_resolved', [$this,'mark_resolved']);
                 
         add_shortcode('ai_chatbot', [$this, 'chatbot_ui']);
 
@@ -72,7 +79,7 @@ class AI_Support_Chatbot {
             UNIQUE KEY post_id (post_id)
         ) $charset;");
 
-        // chat sessions table
+        // chat sessions table - IMPROVED with status & agent tracking
         $table2 = $wpdb->prefix . 'ai_chat_sessions';
 
         dbDelta("CREATE TABLE $table2 (
@@ -80,7 +87,17 @@ class AI_Support_Chatbot {
             name VARCHAR(200),
             email VARCHAR(200),
             phone VARCHAR(50),
-            started_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            status VARCHAR(50) DEFAULT 'ai_handling',
+            agent_id BIGINT NULL,
+            sentiment_score FLOAT DEFAULT 0,
+            requires_escalation TINYINT(1) DEFAULT 0,
+            escalation_reason VARCHAR(255),
+            started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            escalated_at DATETIME NULL,
+            resolved_at DATETIME NULL,
+            KEY email (email),
+            KEY status (status),
+            KEY agent_id (agent_id)
         ) $charset;");
 
         // chat messages table
@@ -93,6 +110,19 @@ class AI_Support_Chatbot {
             message LONGTEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             KEY session_id (session_id)
+        ) $charset;");
+
+        // NEW: agents table
+        $table4 = $wpdb->prefix . 'ai_chat_agents';
+
+        dbDelta("CREATE TABLE $table4 (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            is_online TINYINT(1) DEFAULT 0,
+            max_chats INT DEFAULT 5,
+            current_chats INT DEFAULT 0,
+            last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY user_id (user_id)
         ) $charset;");
     }
 
@@ -142,6 +172,12 @@ class AI_Support_Chatbot {
             update_option('ai_max_history', intval($_POST['max_history']));
             $post_types = isset($_POST['post_types']) ? array_map('sanitize_text_field', $_POST['post_types']) : [];
             update_option('ai_post_types', $post_types);
+            
+            // NEW: escalation settings
+            update_option('ai_escalation_keywords', sanitize_textarea_field($_POST['escalation_keywords'] ?? ''));
+            update_option('ai_sentiment_threshold', floatval($_POST['sentiment_threshold'] ?? -0.3));
+            update_option('ai_enable_escalation', isset($_POST['enable_escalation']) ? 1 : 0);
+            
             echo '<div class="updated"><p>Settings saved.</p></div>';
         }
 
@@ -153,11 +189,27 @@ class AI_Support_Chatbot {
         $max_history          = get_option('ai_max_history', 5);
         $selected_post_types  = get_option('ai_post_types', ['post', 'page']);
         $all_post_types       = get_post_types(['public' => true], 'objects');
+        
+        // NEW: escalation settings
+        $escalation_keywords  = get_option('ai_escalation_keywords', 'refund,complaint,urgent,contract,support,help,cancel');
+        $sentiment_threshold  = get_option('ai_sentiment_threshold', -0.3);
+        $enable_escalation    = get_option('ai_enable_escalation', 1);
+        
+        // Tab selection
+        $tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'settings';
         ?>
         <div class="wrap">
-            <h1>AI Support Chatbot Settings</h1>
+            <h1>AI Support Chatbot</h1>
+            <nav class="nav-tab-wrapper">
+                <a href="?page=ai-support-chatbot&tab=settings" class="nav-tab <?php echo $tab === 'settings' ? 'nav-tab-active' : ''; ?>">Settings</a>
+                <a href="?page=ai-support-chatbot&tab=agents" class="nav-tab <?php echo $tab === 'agents' ? 'nav-tab-active' : ''; ?>">Agent Dashboard</a>
+                <a href="?page=ai-support-chatbot&tab=chats" class="nav-tab <?php echo $tab === 'chats' ? 'nav-tab-active' : ''; ?>">Chat History</a>
+            </nav>
+
+            <?php if ($tab === 'settings') : ?>
             <form method="post">
                 <?php wp_nonce_field('ai_chatbot_settings'); ?>
+                <h2>API Configuration</h2>
                 <table class="form-table">
                     <tr><th>Cohere API Key</th><td><input type="text" name="api_key" value="<?php echo esc_attr($api_key); ?>" class="regular-text" /></td></tr>
                     <tr><th>Embedding Model</th><td><select name="embedding_model"><?php
@@ -170,11 +222,20 @@ class AI_Support_Chatbot {
                     ?></select></td></tr>
                     <tr><th>Number of search results</th><td><input type="number" name="search_limit" value="<?php echo esc_attr($search_limit); ?>" min="1" max="20" /></td></tr>
                     <tr><th>Similarity threshold (0-1)</th><td><input type="number" name="similarity_threshold" value="<?php echo esc_attr($similarity_threshold); ?>" min="0" max="1" step="0.05" /><p class="description">Only posts with cosine similarity above this value will be used as context.</p></td></tr>
-                    <tr><th>Max conversation history</th><td><input type="number" name="max_history" value="<?php echo esc_attr($max_history); ?>" min="0" max="20" /><p class="description">Number of previous messages to keep for context (0 = single‑turn).</p></td></tr>
+                    <tr><th>Max conversation history</th><td><input type="number" name="max_history" value="<?php echo esc_attr($max_history); ?>" min="0" max="20" /><p class="description">Number of previous messages to keep for context.</p></td></tr>
                     <tr><th>Post Types to Index</th><td><?php foreach ($all_post_types as $pt) : ?><label><input type="checkbox" name="post_types[]" value="<?php echo esc_attr($pt->name); ?>" <?php checked(in_array($pt->name, $selected_post_types)); ?> /> <?php echo esc_html($pt->label); ?></label><br /><?php endforeach; ?></td></tr>
                 </table>
+
+                <h2>Human Support Handoff</h2>
+                <table class="form-table">
+                    <tr><th>Enable Escalation</th><td><label><input type="checkbox" name="enable_escalation" <?php checked($enable_escalation); ?> /> Allow users to escalate to human agents</label></td></tr>
+                    <tr><th>Escalation Keywords <br/>(comma-separated)</th><td><textarea name="escalation_keywords" class="large-text" rows="4"><?php echo esc_textarea($escalation_keywords); ?></textarea><p class="description">Chat containing these keywords will be flagged for escalation.</p></td></tr>
+                    <tr><th>Sentiment Threshold</th><td><input type="number" name="sentiment_threshold" value="<?php echo esc_attr($sentiment_threshold); ?>" min="-1" max="1" step="0.1" /><p class="description">Scores below this will trigger automatic escalation (negative = unhappy).</p></td></tr>
+                </table>
+
                 <p class="submit"><input type="submit" name="save_settings" class="button-primary" value="Save Settings" /></p>
             </form>
+            
             <hr />
             <h2>Generate Embeddings</h2>
             <p>Click below to create embeddings for all selected post types. This may take a while on large sites.</p>
@@ -188,6 +249,18 @@ class AI_Support_Chatbot {
                 .then(t => document.getElementById('embedding-status').innerText = t);
             };
             </script>
+
+            <?php elseif ($tab === 'agents') : ?>
+            <h2>Support Agents</h2>
+            <p>Manage support agents who can take over chats from the AI.</p>
+            <?php $this->render_agent_dashboard(); ?>
+
+            <?php elseif ($tab === 'chats') : ?>
+            <h2>Chat History</h2>
+            <p>View all customer conversations and handoff status.</p>
+            <?php $this->render_chat_history(); ?>
+
+            <?php endif; ?>
         </div>
         <?php
     }
@@ -504,7 +577,18 @@ class AI_Support_Chatbot {
             wp_send_json_error(['text' => 'Could not process response.']);
         }
 
-        wp_send_json_success(['text' => $text]);
+        // Check if escalation is needed
+        $session_id = intval($_POST['session_id'] ?? 0);
+        if ($session_id && $this->should_escalate($_POST['message'])) {
+            global $wpdb;
+            $table = $wpdb->prefix . 'ai_chat_sessions';
+            $wpdb->update($table, [
+                'requires_escalation' => 1,
+                'escalation_reason' => 'AI detected escalation trigger'
+            ], ['id' => $session_id]);
+        }
+
+        wp_send_json_success(['text' => $text, 'needs_escalation' => false]);
     }
 
     private function check_rate_limit() {
@@ -514,6 +598,347 @@ class AI_Support_Chatbot {
         if ($count && $count >= 10) return false;
         set_transient($key, $count ? $count + 1 : 1, MINUTE_IN_SECONDS);
         return true;
+    }
+
+    /* -----------------------------------------------
+       ESCALATION & SENTIMENT ANALYSIS
+    ----------------------------------------------- */
+    private function calculate_sentiment($text) {
+        // Simple sentiment analysis based on keywords
+        $positive_words = ['great', 'good', 'excellent', 'awesome', 'love', 'happy', 'thanks', 'appreciate', 'perfect', 'satisfied'];
+        $negative_words = ['bad', 'terrible', 'horrible', 'hate', 'angry', 'frustrated', 'disappointed', 'useless', 'complaint', 'problem'];
+        
+        $text_lower = strtolower($text);
+        $pos_count = 0;
+        $neg_count = 0;
+        
+        foreach ($positive_words as $word) {
+            $pos_count += substr_count($text_lower, $word);
+        }
+        
+        foreach ($negative_words as $word) {
+            $neg_count += substr_count($text_lower, $word);
+        }
+        
+        // Sentiment score: -1 (very negative) to 1 (very positive)
+        $total = $pos_count + $neg_count;
+        if ($total === 0) return 0;
+        return ($pos_count - $neg_count) / $total;
+    }
+
+    private function should_escalate($message, $session_id = null) {
+        $enable_escalation = get_option('ai_enable_escalation', 1);
+        if (!$enable_escalation) return false;
+        
+        $escalation_keywords = get_option('ai_escalation_keywords', 'refund,complaint,urgent,contract,support,help,cancel');
+        $keywords = array_map('trim', explode(',', strtolower($escalation_keywords)));
+        
+        $message_lower = strtolower($message);
+        
+        // Check for keywords
+        foreach ($keywords as $keyword) {
+            if (!empty($keyword) && strpos($message_lower, $keyword) !== false) {
+                return true;
+            }
+        }
+        
+        // Check sentiment
+        $sentiment = $this->calculate_sentiment($message);
+        $sentiment_threshold = get_option('ai_sentiment_threshold', -0.3);
+        if ($sentiment < $sentiment_threshold) {
+            return true;
+        }
+        
+        return false;
+    }
+
+    public function request_escalation() {
+        global $wpdb;
+        
+        $session_id = intval($_POST['session_id'] ?? 0);
+        $reason = sanitize_text_field($_POST['reason'] ?? 'User requested human support');
+        
+        if (!$session_id) {
+            wp_send_json_error(['text' => 'Invalid session']);
+        }
+        
+        $table = $wpdb->prefix . 'ai_chat_sessions';
+        $wpdb->update($table, [
+            'status' => 'waiting',
+            'requires_escalation' => 1,
+            'escalation_reason' => $reason,
+            'escalated_at' => current_time('mysql')
+        ], ['id' => $session_id]);
+        
+        wp_send_json_success(['text' => 'Your request has been sent to our support team.']);
+    }
+
+    public function agent_update_chat() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['text' => 'Unauthorized']);
+        }
+        
+        global $wpdb;
+        
+        $session_id = intval($_POST['session_id'] ?? 0);
+        $message = sanitize_textarea_field($_POST['message'] ?? '');
+        $agent_id = get_current_user_id();
+        
+        if (!$session_id || empty($message)) {
+            wp_send_json_error(['text' => 'Invalid input']);
+        }
+        
+        $msg_table = $wpdb->prefix . 'ai_chat_messages';
+        $session_table = $wpdb->prefix . 'ai_chat_sessions';
+        
+        // Update session as being handled by agent
+        $wpdb->update($session_table, [
+            'status' => 'human_handling',
+            'agent_id' => $agent_id
+        ], ['id' => $session_id]);
+        
+        // Insert agent message
+        $wpdb->insert($msg_table, [
+            'session_id' => $session_id,
+            'role' => 'AGENT',
+            'message' => $message
+        ]);
+        
+        wp_send_json_success(['text' => 'Message sent']);
+    }
+
+    public function get_agent_chats() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['error' => 'Unauthorized']);
+        }
+        
+        global $wpdb;
+        
+        $session_table = $wpdb->prefix . 'ai_chat_sessions';
+        $msg_table = $wpdb->prefix . 'ai_chat_messages';
+        
+        // Get waiting or agent-handling chats
+        $chats = $wpdb->get_results("
+            SELECT s.id, s.name, s.email, s.phone, s.status, s.requires_escalation, s.escalation_reason, 
+                   s.started_at, COUNT(m.id) as message_count
+            FROM $session_table s
+            LEFT JOIN $msg_table m ON s.id = m.session_id
+            WHERE s.status IN ('waiting', 'human_handling')
+            GROUP BY s.id
+            ORDER BY s.escalated_at DESC, s.started_at DESC
+        ");
+        
+        wp_send_json_success($chats);
+    }
+
+    public function mark_resolved() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['text' => 'Unauthorized']);
+        }
+        
+        global $wpdb;
+        
+        $session_id = intval($_POST['session_id'] ?? 0);
+        if (!$session_id) {
+            wp_send_json_error(['text' => 'Invalid session']);
+        }
+        
+        $table = $wpdb->prefix . 'ai_chat_sessions';
+        $wpdb->update($table, [
+            'status' => 'resolved',
+            'resolved_at' => current_time('mysql')
+        ], ['id' => $session_id]);
+        
+        wp_send_json_success(['text' => 'Chat marked as resolved']);
+    }
+
+    private function render_agent_dashboard() {
+        global $wpdb;
+        
+        $session_table = $wpdb->prefix . 'ai_chat_sessions';
+        $msg_table = $wpdb->prefix . 'ai_chat_messages';
+        
+        // Get all pending/active chats
+        $chats = $wpdb->get_results("
+            SELECT s.id, s.name, s.email, s.phone, s.status, s.requires_escalation, s.escalation_reason, 
+                   s.started_at, COUNT(m.id) as message_count
+            FROM $session_table s
+            LEFT JOIN $msg_table m ON s.id = m.session_id
+            WHERE s.status IN ('waiting', 'human_handling')
+            GROUP BY s.id
+            ORDER BY s.requires_escalation DESC, s.started_at ASC
+        ");
+        
+        ?>
+        <table class="wp-list-table widefat fixed striped">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Reason</th>
+                    <th>Started</th>
+                    <th>Messages</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (empty($chats)) : ?>
+                <tr><td colspan="7">No pending chats</td></tr>
+                <?php else : ?>
+                <?php foreach ($chats as $chat) : ?>
+                <tr>
+                    <td><?php echo esc_html($chat->name); ?></td>
+                    <td><?php echo esc_html($chat->email); ?></td>
+                    <td><span style="padding:4px 8px;border-radius:4px;background:<?php echo $chat->status === 'waiting' ? '#fff8e1' : '#e1f5ff'; ?>"><?php echo ucfirst(str_replace('_', ' ', $chat->status)); ?></span></td>
+                    <td><?php echo $chat->requires_escalation ? esc_html($chat->escalation_reason ?: 'Escalated') : '-'; ?></td>
+                    <td><?php echo esc_html(date('H:i', strtotime($chat->started_at))); ?></td>
+                    <td><?php echo intval($chat->message_count); ?></td>
+                    <td><button class="button button-small view-chat-btn" data-session="<?php echo intval($chat->id); ?>">View Chat</button></td>
+                </tr>
+                <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+        <script>
+        document.querySelectorAll('.view-chat-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const sessionId = this.dataset.session;
+                window.open('?page=ai-support-chatbot&tab=chats&session=' + sessionId, '_blank');
+            });
+        });
+        </script>
+        <?php
+    }
+
+    private function render_chat_history() {
+        global $wpdb;
+        
+        $session_id = intval($_GET['session'] ?? 0);
+        $session_table = $wpdb->prefix . 'ai_chat_sessions';
+        $msg_table = $wpdb->prefix . 'ai_chat_messages';
+        
+        if ($session_id) {
+            // Show single chat with ability to respond
+            $session = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM $session_table WHERE id = %d",
+                $session_id
+            ));
+            
+            if (!$session) {
+                echo '<p>Chat not found</p>';
+                return;
+            }
+            
+            $messages = $wpdb->get_results($wpdb->prepare(
+                "SELECT * FROM $msg_table WHERE session_id = %d ORDER BY created_at ASC",
+                $session_id
+            ));
+            
+            ?>
+            <div style="background:#f5f5f5;padding:20px;border-radius:8px;max-width:600px;">
+                <h3><?php echo esc_html($session->name); ?> (<?php echo esc_html($session->email); ?>)</h3>
+                <p><strong>Phone:</strong> <?php echo esc_html($session->phone); ?></p>
+                <p><strong>Status:</strong> <?php echo ucfirst(str_replace('_', ' ', $session->status)); ?></p>
+                
+                <div style="background:#fff;border:1px solid #ddd;border-radius:4px;padding:15px;max-height:400px;overflow-y:auto;margin:15px 0;">
+                    <?php foreach ($messages as $msg) : ?>
+                    <div style="margin:10px 0;padding:10px;background:<?php echo $msg->role === 'user' ? '#e3f2fd' : '#f5f5f5'; ?>;border-radius:4px;">
+                        <strong><?php echo esc_html(ucfirst($msg->role)); ?>:</strong> <?php echo nl2br(esc_html($msg->message)); ?>
+                        <div style="font-size:12px;color:#999;margin-top:5px;"><?php echo esc_html(date('H:i', strtotime($msg->created_at))); ?></div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                
+                <?php if ($session->status !== 'resolved') : ?>
+                <form style="display:flex;gap:10px;">
+                    <textarea id="agent-response" placeholder="Type your response..." style="flex:1;padding:10px;border:1px solid #ddd;border-radius:4px;"></textarea>
+                    <button type="button" id="send-agent-response" class="button button-primary">Send</button>
+                </form>
+                <div id="agent-response-status"></div>
+                <script>
+                document.getElementById('send-agent-response').addEventListener('click', function() {
+                    const message = document.getElementById('agent-response').value;
+                    if (!message.trim()) return;
+                    
+                    fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({
+                            action: 'ai_agent_update_chat',
+                            session_id: <?php echo intval($session_id); ?>,
+                            message: message
+                        })
+                    }).then(r => r.json()).then(data => {
+                        if (data.success) {
+                            document.getElementById('agent-response').value = '';
+                            document.getElementById('agent-response-status').textContent = 'Message sent!';
+                            setTimeout(() => location.reload(), 1000);
+                        }
+                    });
+                });
+                </script>
+                <div style="margin-top:10px;">
+                    <button type="button" id="mark-resolved-btn" class="button button-secondary">Mark as Resolved</button>
+                </div>
+                <script>
+                document.getElementById('mark-resolved-btn').addEventListener('click', function() {
+                    fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({
+                            action: 'ai_mark_resolved',
+                            session_id: <?php echo intval($session_id); ?>
+                        })
+                    }).then(r => r.json()).then(data => {
+                        if (data.success) {
+                            alert('Chat marked as resolved');
+                            history.back();
+                        }
+                    });
+                });
+                </script>
+                <?php endif; ?>
+            </div>
+            <?php
+        } else {
+            // Show list of all chats
+            $chats = $wpdb->get_results("
+                SELECT s.id, s.name, s.email, s.status, s.started_at, COUNT(m.id) as message_count
+                FROM $session_table s
+                LEFT JOIN $msg_table m ON s.id = m.session_id
+                GROUP BY s.id
+                ORDER BY s.started_at DESC
+                LIMIT 50
+            ");
+            
+            ?>
+            <table class="wp-list-table widefat fixed striped">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Status</th>
+                        <th>Started</th>
+                        <th>Messages</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($chats as $chat) : ?>
+                    <tr>
+                        <td><?php echo esc_html($chat->name); ?></td>
+                        <td><?php echo esc_html($chat->email); ?></td>
+                        <td><?php echo ucfirst(str_replace('_', ' ', $chat->status)); ?></td>
+                        <td><?php echo esc_html(human_time_diff(strtotime($chat->started_at)) . ' ago'); ?></td>
+                        <td><?php echo intval($chat->message_count); ?></td>
+                        <td><a href="?page=ai-support-chatbot&tab=chats&session=<?php echo intval($chat->id); ?>" class="button button-small">View</a></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php
+        }
     }
 
     /* -----------------------------------------------
@@ -695,6 +1120,12 @@ class AI_Support_Chatbot {
                             <input id="ai-chat-input" type="text" placeholder="Ask a question about our site, services, or docs..." aria-label="Type your question" />
                             <button id="ai-chat-send" aria-label="Send message">Send</button>
                         </div>
+                        
+
+                        <div style="padding:12px;border-top:1px solid #e6e7eb;background:#f7f8fb;display:flex;gap:8px;">
+                            <button id="ai-escalate-btn" class="button button-small">Connect to Human</button>
+                            <span id="escalation-status" style="flex:1;color:#999;font-size:13px;align-self:center;"></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -867,7 +1298,7 @@ class AI_Support_Chatbot {
                     chatArea.style.display = 'flex';
                     input.focus();
 
-                    // Optionally notify server to create a session (if you implement handler 'ai_save_chat_session')
+                    // Create a session on server
                     fetch(ajaxUrl, {
                         method:'POST',
                         headers: { 'Content-Type':'application/x-www-form-urlencoded' },
@@ -876,6 +1307,10 @@ class AI_Support_Chatbot {
                             user: JSON.stringify(userData),
                             initial: 'started'
                         })
+                    }).then(r => r.json()).then(data => {
+                        if (data.success && data.data && data.data.session_id) {
+                            sessionId = data.data.session_id;
+                        }
                     }).catch(()=>{/* ignore errors if endpoint doesn't exist */});
                 });
 
@@ -892,6 +1327,8 @@ class AI_Support_Chatbot {
                         };
                     });
                 }
+
+                let sessionId = null; // Store session ID after user starts chat
 
                 // send message
                 async function sendMessage(){
@@ -923,6 +1360,7 @@ class AI_Support_Chatbot {
                                 action: 'ai_stream_chat',
                                 message: text,
                                 history: JSON.stringify(cleanedHistory), // <<--- cleaned, safe for Cohere
+                                session_id: sessionId || '',
                                 user: userData ? JSON.stringify(userData) : ''
                             })
                         });
@@ -955,6 +1393,7 @@ class AI_Support_Chatbot {
                             headers: { 'Content-Type':'application/x-www-form-urlencoded' },
                             body: new URLSearchParams({
                                 action: 'ai_save_chat',
+                                session_id: sessionId || '',
                                 user: JSON.stringify(userData || {}),
                                 message: JSON.stringify({ role: 'CHATBOT', message: answer }), // normalized
                                 full_history: JSON.stringify(makeCleanHistoryFrom(history))
@@ -977,6 +1416,34 @@ class AI_Support_Chatbot {
                         e.preventDefault();
                         sendMessage();
                     }
+                });
+
+                // Escalation button handler
+                document.getElementById('ai-escalate-btn').addEventListener('click', function() {
+                    if (!sessionId) {
+                        alert('Please send a message first');
+                        return;
+                    }
+                    
+                    fetch(ajaxUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({
+                            action: 'ai_request_escalation',
+                            session_id: sessionId,
+                            reason: 'User requested to speak with human agent'
+                        })
+                    }).then(r => r.json()).then(data => {
+                        const statusEl = document.getElementById('escalation-status');
+                        if (data.success) {
+                            statusEl.textContent = '✓ A human agent will be with you shortly';
+                            statusEl.style.color = '#2ccc71';
+                            document.getElementById('ai-escalate-btn').disabled = true;
+                        } else {
+                            statusEl.textContent = '✗ Could not connect to support team';
+                            statusEl.style.color = '#e74c3c';
+                        }
+                    });
                 });
 
                 document.addEventListener('keydown', function(e){
@@ -1008,7 +1475,8 @@ class AI_Support_Chatbot {
         $wpdb->insert($table,[
             'name'=>$name,
             'email'=>$email,
-            'phone'=>$phone
+            'phone'=>$phone,
+            'status'=>'ai_handling'
         ]);
 
         $session_id = $wpdb->insert_id;
@@ -1027,16 +1495,27 @@ class AI_Support_Chatbot {
 
         $user = json_decode(stripslashes($_POST['user']), true);
         $message = json_decode(stripslashes($_POST['message']), true);
+        $session_id = intval($_POST['session_id'] ?? 0);
 
         if(!$user || !$message){
             wp_send_json_error();
         }
 
-        // find existing session
-        $session = $wpdb->get_row($wpdb->prepare(
-            "SELECT id FROM $session_table WHERE email=%s ORDER BY id DESC LIMIT 1",
-            $user['email']
-        ));
+        // use provided session_id or find by email
+        $session = null;
+        if ($session_id) {
+            $session = $wpdb->get_row($wpdb->prepare(
+                "SELECT id FROM $session_table WHERE id = %d",
+                $session_id
+            ));
+        }
+        
+        if (!$session) {
+            $session = $wpdb->get_row($wpdb->prepare(
+                "SELECT id FROM $session_table WHERE email=%s ORDER BY id DESC LIMIT 1",
+                $user['email']
+            ));
+        }
 
         if(!$session){
             wp_send_json_error();
