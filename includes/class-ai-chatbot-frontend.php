@@ -4,7 +4,6 @@ class AI_Support_Chatbot_Frontend {
     public function __construct() {
         add_shortcode('ai_chatbot', [$this, 'chatbot_ui']);
 
-        // AJAX handlers (front-end)
         add_action('wp_ajax_ai_stream_chat', [$this, 'handle_stream_chat']);
         add_action('wp_ajax_nopriv_ai_stream_chat', [$this, 'handle_stream_chat']);
 
@@ -13,22 +12,13 @@ class AI_Support_Chatbot_Frontend {
 
         add_action('wp_ajax_ai_save_chat', [$this, 'save_chat']);
         add_action('wp_ajax_nopriv_ai_save_chat', [$this, 'save_chat']);
-
-        // The agent-related AJAX (escalation, fetch agent messages) are in the Agent class,
-        // but we also need to make sure they are accessible to front-end (already registered there).
     }
 
-    /**
-     * Delegate stream chat to API class.
-     */
     public function handle_stream_chat() {
         $api = new AI_Support_Chatbot_API();
         $api->ajax_stream_chat();
     }
 
-    /**
-     * Save a new chat session.
-     */
     public function save_chat_session() {
         global $wpdb;
 
@@ -58,9 +48,6 @@ class AI_Support_Chatbot_Frontend {
         ]);
     }
 
-    /**
-     * Save a single chat message.
-     */
     public function save_chat(){
         global $wpdb;
 
@@ -103,18 +90,10 @@ class AI_Support_Chatbot_Frontend {
         wp_send_json_success();
     }
 
-    /**
-     * Shortcode: chatbot UI.
-     */
     public function chatbot_ui() {
         ob_start();
-        // The original HTML/JS from the original plugin, slightly modified to use the new AJAX actions.
-        // (We keep the same HTML/CSS/JS as in the original, just ensure the JavaScript calls the correct AJAX endpoints.)
-        // For brevity, the full UI code from the original plugin is placed here.
-        // (I will include the exact same HTML/JS from the original, as it already uses the correct actions.)
         ?>
         <style>
-            /* Same CSS as in original */
             :root{--brand-start:#ff8a00;--brand-end:#dd7500;--brand-dark:#c46400;--muted:#6b7280;--bg:#ffffff;--panel-bg:#fbfbfd;--bubble-user:#FFE8C2;--bubble-ai:#ffffff;--radius:14px;--shadow:0 20px 50px rgba(12,15,20,0.12);--font:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial}
             #ai-chat-widget{position:fixed;bottom:22px;right:22px;z-index:99999;font-family:var(--font);-webkit-font-smoothing:antialiased}
             #ai-chat-toggle{width:68px;height:68px;border-radius:50%;background:linear-gradient(135deg,var(--brand-start),var(--brand-end));border:none;color:#fff;font-size:28px;cursor:pointer;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;transition:transform .16s ease,box-shadow .16s ease}
@@ -125,8 +104,7 @@ class AI_Support_Chatbot_Frontend {
             #ai-chat-panel.open{display:flex}
             #ai-chat-header{background:linear-gradient(90deg,var(--brand-start),var(--brand-end));color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px;justify-content:space-between}
             #ai-chat-header .left{display:flex;align-items:center;gap:12px}
-            #ai-chat-header h4{margin:0;font-size:15px;letter-spacing:.2px}
-            #ai-chat-header p{margin:0;font-size:12px;opacity:.95;color:rgba(255,255,255,.92)}
+            #ai-chat-header h4{margin:0;font-size:16px;letter-spacing:.2px;color:#fff;}
             #ai-chat-header .actions{display:flex;gap:8px;align-items:center}
             #ai-chat-close{background:0 0;border:none;color:rgba(255,255,255,.95);font-size:18px;cursor:pointer}
             #ai-widget-body{display:flex;flex-direction:column;gap:0}
@@ -186,11 +164,9 @@ class AI_Support_Chatbot_Frontend {
                             <path d="M4 12c0-4.418 3.582-8 8-8s8 3.582 8 8-3.582 8-8 8c-1.42 0-2.763-.328-3.96-.915L4 20l1.915-3.96A7.962 7.962 0 0 1 4 12z" fill="white" opacity="0.12"></path>
                         </svg>
                         <div>
-                            <h4>Support Chat</h4>
-                            <p>Answers from your site content — 24/7</p>
+                            <h4>(MEC), Inc. AI Support</h4>
                         </div>
                     </div>
-
                     <div class="actions">
                         <button id="ai-chat-close" aria-label="Close chat">✕</button>
                     </div>
@@ -236,15 +212,14 @@ class AI_Support_Chatbot_Frontend {
                             <input id="ai-chat-input" type="text" placeholder="Ask a question about our site, services, or docs..." aria-label="Type your question" />
                             <button id="ai-chat-send" aria-label="Send message">Send</button>
                         </div>
-                        
 
-                        <div style="padding:12px;border-top:1px solid #e6e7eb;background:#f7f8fb;display:flex;gap:8px;align-items:center;">
+                        <!-- <div style="padding:12px;border-top:1px solid #e6e7eb;background:#f7f8fb;display:flex;gap:8px;align-items:center;">
                             <div id="ai-agent-status" style="display:flex;align-items:center;gap:8px;flex:1;">
                                 <span id="ai-status-dot" style="width:10px;height:10px;border-radius:50%;background:#999;display:inline-block;"></span>
                                 <span id="ai-status-text" style="font-size:13px;color:#666;">Connecting...</span>
                             </div>
                             <button id="ai-request-agent-btn" class="button button-small" style="display:none;">Request Agent</button>
-                        </div>
+                        </div> -->
                     </div>
                 </div>
             </div>
@@ -252,20 +227,16 @@ class AI_Support_Chatbot_Frontend {
         <script>
             (function(){
                 const ajaxUrl = "<?php echo esc_js(admin_url('admin-ajax.php')); ?>";
-                const widget = document.getElementById('ai-chat-widget');
                 const panel = document.getElementById('ai-chat-panel');
                 const toggleBtn = document.getElementById('ai-chat-toggle');
                 const closeBtn = document.getElementById('ai-chat-close');
                 const unreadBadge = document.getElementById('ai-unread-badge');
-
                 const startBtn = document.getElementById('ai-start-chat');
                 const userForm = document.getElementById('ai-user-form');
                 const chatArea = document.getElementById('ai-chat-area');
                 const chatBox = document.getElementById('ai-chat-box');
                 const input = document.getElementById('ai-chat-input');
                 const sendBtn = document.getElementById('ai-chat-send');
-
-                // form fields & errors
                 const nameEl = document.getElementById('ai-user-name');
                 const emailEl = document.getElementById('ai-user-email');
                 const phoneEl = document.getElementById('ai-user-phone');
@@ -478,16 +449,16 @@ class AI_Support_Chatbot_Frontend {
                     const statusText = document.getElementById('ai-status-text');
                     const requestBtn = document.getElementById('ai-request-agent-btn');
                     
-                    requestBtn.style.display = 'inline-block';
-                    requestBtn.disabled = !agentAvailable;
-                    requestBtn.textContent = agentAvailable ? 'Request Human Agent' : 'No Agents Online';
-
                     if (agentAvailable) {
+                        requestBtn.style.display = 'inline-block';
+                        requestBtn.disabled = false;
+                        requestBtn.textContent = 'Request Human Agent';
                         statusDot.style.background = '#2ccc71';
-                        statusText.textContent = '🟢 Agent Available - Click below to request human support';
+                        statusText.textContent = '🟢 Agent Available';
                     } else {
+                        requestBtn.style.display = 'none';
                         statusDot.style.background = '#95a5a6';
-                        statusText.textContent = '🤖 AI Chat (No agents online)';
+                        statusText.textContent = '🤖 AI Chat';
                     }
                 }
 
@@ -527,6 +498,12 @@ class AI_Support_Chatbot_Frontend {
                                     appendMessageToDOM(aiMsg, false);
                                     scrollToBottom();
                                     lastAgentId = Math.max(lastAgentId, parseInt(msg.id,10));
+
+                                    // Hide request button and update status after first agent message
+                                    const requestBtn = document.getElementById('ai-request-agent-btn');
+                                    requestBtn.style.display = 'none';
+                                    document.getElementById('ai-status-text').textContent = '💬 Agent Online';
+                                    document.getElementById('ai-status-dot').style.background = '#2ccc71';
                                 }
                             });
                         }
@@ -551,6 +528,21 @@ class AI_Support_Chatbot_Frontend {
                     input.value = '';
                     scrollToBottom();
 
+                    // Save user message to server
+                    if (sessionId && userData) {
+                        fetch(ajaxUrl, {
+                            method:'POST',
+                            headers: { 'Content-Type':'application/x-www-form-urlencoded' },
+                            body: new URLSearchParams({
+                                action: 'ai_save_chat',
+                                session_id: sessionId,
+                                user: JSON.stringify(userData),
+                                message: JSON.stringify({ role: 'user', message: text }),
+                                full_history: JSON.stringify(makeCleanHistoryFrom(history))
+                            })
+                        }).catch(()=>{});
+                    }
+
                     const typingMsg = { role:'assistant', isTyping:true, ts: new Date().toISOString() };
                     appendMessageToDOM(typingMsg, false);
                     typingPlaceholder = chatBox.lastChild;
@@ -574,32 +566,37 @@ class AI_Support_Chatbot_Frontend {
 
                         if(typingPlaceholder) typingPlaceholder.remove();
 
-                        let answer = '';
-                        if (result && result.success && result.data && result.data.text){
-                            answer = result.data.text;
-                        } else if (result && result.data && result.data.text) {
-                            answer = result.data.text;
+                        if (result.success && result.data && result.data.agent_handling) {
+                            // Agent is handling – do nothing
+                            scrollToBottom();
                         } else {
-                            answer = 'Sorry — I could not get a response. Please try again.';
+                            let answer = '';
+                            if (result && result.success && result.data && result.data.text){
+                                answer = result.data.text;
+                            } else if (result && result.data && result.data.text) {
+                                answer = result.data.text;
+                            } else {
+                                answer = 'Sorry — I could not get a response. Please try again.';
+                            }
+
+                            const aiMsg = { role: 'assistant', content: answer, ts: new Date().toISOString() };
+                            history.push(aiMsg);
+                            try{ sessionStorage.setItem('ai_chat_history', JSON.stringify(history)); }catch(e){}
+                            appendMessageToDOM(aiMsg, false);
+                            scrollToBottom();
+
+                            fetch(ajaxUrl, {
+                                method:'POST',
+                                headers: { 'Content-Type':'application/x-www-form-urlencoded' },
+                                body: new URLSearchParams({
+                                    action: 'ai_save_chat',
+                                    session_id: sessionId || '',
+                                    user: JSON.stringify(userData || {}),
+                                    message: JSON.stringify({ role: 'CHATBOT', message: answer }),
+                                    full_history: JSON.stringify(makeCleanHistoryFrom(history))
+                                })
+                            }).catch(()=>{});
                         }
-
-                        const aiMsg = { role: 'assistant', content: answer, ts: new Date().toISOString() };
-                        history.push(aiMsg);
-                        try{ sessionStorage.setItem('ai_chat_history', JSON.stringify(history)); }catch(e){}
-                        appendMessageToDOM(aiMsg, false);
-                        scrollToBottom();
-
-                        fetch(ajaxUrl, {
-                            method:'POST',
-                            headers: { 'Content-Type':'application/x-www-form-urlencoded' },
-                            body: new URLSearchParams({
-                                action: 'ai_save_chat',
-                                session_id: sessionId || '',
-                                user: JSON.stringify(userData || {}),
-                                message: JSON.stringify({ role: 'CHATBOT', message: answer }),
-                                full_history: JSON.stringify(makeCleanHistoryFrom(history))
-                            })
-                        }).catch(()=>{});
 
                     } catch (err){
                         if(typingPlaceholder) typingPlaceholder.remove();

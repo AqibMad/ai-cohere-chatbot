@@ -2,7 +2,6 @@
 class AI_Support_Chatbot_Agent {
 
     public function __construct() {
-        // AJAX handlers
         add_action('wp_ajax_ai_request_escalation', [$this, 'request_escalation']);
         add_action('wp_ajax_nopriv_ai_request_escalation', [$this, 'request_escalation']);
         add_action('wp_ajax_ai_agent_update_chat', [$this, 'agent_update_chat']);
@@ -16,9 +15,6 @@ class AI_Support_Chatbot_Agent {
         add_action('admin_footer', [$this, 'admin_agent_heartbeat_script']);
     }
 
-    /**
-     * Check if any agent is currently online (via heartbeat).
-     */
     public function is_agent_available() {
         global $wpdb;
         $agent_table = $wpdb->prefix . 'ai_chat_agents';
@@ -29,14 +25,10 @@ class AI_Support_Chatbot_Agent {
             $threshold
         )));
 
-        // Also consider manual override setting
         $manual_status = get_option('ai_agents_online_status', 'offline');
         return ($online_count > 0 || $manual_status === 'online');
     }
 
-    /**
-     * AJAX: Check agent availability.
-     */
     public function check_agent_availability() {
         $available = $this->is_agent_available();
         wp_send_json_success([
@@ -44,9 +36,6 @@ class AI_Support_Chatbot_Agent {
         ]);
     }
 
-    /**
-     * AJAX: User requests escalation to human agent.
-     */
     public function request_escalation() {
         global $wpdb;
         
@@ -90,9 +79,6 @@ class AI_Support_Chatbot_Agent {
         ]);
     }
 
-    /**
-     * AJAX: Agent sends a message to a chat.
-     */
     public function agent_update_chat() {
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['text' => 'Unauthorized']);
@@ -125,9 +111,6 @@ class AI_Support_Chatbot_Agent {
         wp_send_json_success(['text' => 'Message sent']);
     }
 
-    /**
-     * AJAX: Get list of chats waiting or being handled.
-     */
     public function get_agent_chats() {
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['error' => 'Unauthorized']);
@@ -151,9 +134,6 @@ class AI_Support_Chatbot_Agent {
         wp_send_json_success($chats);
     }
 
-    /**
-     * AJAX: Mark a chat as resolved.
-     */
     public function mark_resolved() {
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['text' => 'Unauthorized']);
@@ -175,9 +155,6 @@ class AI_Support_Chatbot_Agent {
         wp_send_json_success(['text' => 'Chat marked as resolved']);
     }
 
-    /**
-     * AJAX: Poll for new agent messages (frontend).
-     */
     public function fetch_agent_messages() {
         global $wpdb;
         $session_id = intval($_POST['session_id'] ?? 0);
@@ -198,9 +175,6 @@ class AI_Support_Chatbot_Agent {
         wp_send_json_success($msgs);
     }
 
-    /**
-     * AJAX: Agent heartbeat (keeps agent online).
-     */
     public function agent_ping() {
         if (!current_user_can('manage_options')) {
             wp_send_json_error();
@@ -232,9 +206,6 @@ class AI_Support_Chatbot_Agent {
         wp_send_json_success();
     }
 
-    /**
-     * Injects heartbeat script in admin footer.
-     */
     public function admin_agent_heartbeat_script() {
         if (!current_user_can('manage_options')) return;
         $ajaxUrl = admin_url('admin-ajax.php');

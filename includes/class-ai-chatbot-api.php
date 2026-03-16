@@ -19,14 +19,10 @@ class AI_Support_Chatbot_API {
         $this->post_types           = get_option('ai_post_types', ['post', 'page']);
         $this->max_history          = get_option('ai_max_history', 5);
 
-        // Register AJAX handler for generating embeddings (admin only)
+        // AJAX handler for generating embeddings (admin only)
         add_action('wp_ajax_ai_generate_embeddings', [$this, 'ajax_generate_embeddings']);
-        add_action('ai_hourly_embedding_update', [$this, 'cron_generate_embeddings']);
     }
 
-    /**
-     * Generate embedding for a text.
-     */
     public function generate_embedding($text) {
         if (empty($this->api_key)) {
             $this->last_api_error = 'API key is empty.';
@@ -79,9 +75,6 @@ class AI_Support_Chatbot_API {
         }
     }
 
-    /**
-     * Generate embeddings for all selected posts (AJAX handler).
-     */
     public function ajax_generate_embeddings() {
         if (empty($this->api_key)) {
             wp_die('Error: Cohere API key is not set. Please save it in the admin panel.');
@@ -106,6 +99,11 @@ class AI_Support_Chatbot_API {
 
         global $wpdb;
         $table = $wpdb->prefix . 'ai_post_embeddings';
+        // Check if table exists
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") != $table) {
+            wp_die('Error: Embeddings table does not exist. Please deactivate and reactivate the plugin.');
+        }
+
         $success = 0;
         $errors = [];
         $fatal_error = false;
@@ -145,6 +143,7 @@ class AI_Support_Chatbot_API {
 
         $message = "Total posts found: $total\n";
         $message .= "Embeddings generated successfully: $success\n";
+
         if (!empty($errors)) {
             $message .= "Failed posts (" . count($errors) . "): " . implode(', ', array_slice($errors, 0, 10));
             if (count($errors) > 10) $message .= '...';
@@ -155,9 +154,6 @@ class AI_Support_Chatbot_API {
         wp_die();
     }
 
-    /**
-     * Cron job to update embeddings.
-     */
     public function cron_generate_embeddings() {
         if (empty($this->api_key)) {
             error_log('AI Chatbot Cron: API key missing. Skipping.');
@@ -207,7 +203,6 @@ class AI_Support_Chatbot_API {
         error_log("AI Chatbot Cron: Completed. Success: $success, Errors: $errors");
     }
 
-    // Semantic search and hybrid search methods (used by chat)
     private function cosine_similarity($a, $b) {
         $dot = 0; $normA = 0; $normB = 0;
         $len = min(count($a), count($b));
@@ -266,9 +261,6 @@ class AI_Support_Chatbot_API {
         return array_slice($unique, 0, $limit);
     }
 
-    /**
-     * Get relevant posts for a query.
-     */
     public function get_relevant_context($query) {
         $posts = $this->hybrid_search($query, $this->search_limit);
         $context = '';
@@ -282,9 +274,6 @@ class AI_Support_Chatbot_API {
         return $context;
     }
 
-    /**
-     * Stream chat response (AJAX handler).
-     */
     public function ajax_stream_chat() {
         if (!$this->check_rate_limit()) {
             wp_send_json_error(['text' => 'Too many requests. Please wait a moment.']);
@@ -299,16 +288,15 @@ class AI_Support_Chatbot_API {
             wp_send_json_error(['text' => 'Please type a message.']);
         }
 
-        // If session is escalated, return agent message
         $session_id = intval($_POST['session_id'] ?? 0);
         if ($session_id) {
             global $wpdb;
             $session_table = $wpdb->prefix . 'ai_chat_sessions';
             $session = $wpdb->get_row($wpdb->prepare("SELECT status FROM $session_table WHERE id = %d", $session_id));
-            if ($session && in_array($session->status, ['waiting', 'human_handling'], true)) {
+            if ($session && $session->status === 'human_handling') {
                 wp_send_json_success([
-                    'text' => 'A human agent is handling your request now. Please wait for their response.',
-                    'needs_escalation' => false
+                    'text' => '',
+                    'agent_handling' => true
                 ]);
             }
         }
