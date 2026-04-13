@@ -22,7 +22,7 @@ class AI_Support_Chatbot_API {
     }
 
     /* =========================
-       🔥 QUERY REWRITING
+       🔥 QUERY REWRITING (ONCE)
     ========================= */
     private function rewrite_query($query) {
 
@@ -36,7 +36,7 @@ class AI_Support_Chatbot_API {
                 'messages' => [
                     [
                         'role' => 'system',
-                        'content' => 'Convert this user question into short search keywords only. No explanation.'
+                        'content' => 'Convert this into short search keywords only.'
                     ],
                     [
                         'role' => 'user',
@@ -57,9 +57,9 @@ class AI_Support_Chatbot_API {
     }
 
     /* =========================
-       🔥 EMBEDDING
+       🔥 EMBEDDING (FIXED)
     ========================= */
-    public function generate_embedding($text) {
+    public function generate_embedding($text, $type = 'search_document') {
 
         $response = wp_remote_post('https://api.cohere.com/v2/embed', [
             'headers' => [
@@ -68,6 +68,7 @@ class AI_Support_Chatbot_API {
             ],
             'body' => json_encode([
                 'model' => $this->embedding_model,
+                'input_type' => $type, // 🔥 FIX
                 'texts' => [$text]
             ]),
             'timeout' => 30
@@ -80,9 +81,7 @@ class AI_Support_Chatbot_API {
         return $data['embeddings']['float'][0] ?? false;
     }
 
-    /* =========================
-       🔥 COSINE SIMILARITY
-    ========================= */
+    /* ========================= */
     private function cosine_similarity($a, $b) {
         $dot = 0; $normA = 0; $normB = 0;
         $len = min(count($a), count($b));
@@ -99,14 +98,13 @@ class AI_Support_Chatbot_API {
     }
 
     /* =========================
-       🔥 SEMANTIC SEARCH (IMPROVED)
+       🔥 SEMANTIC SEARCH (FIXED)
     ========================= */
     private function semantic_search($query, $limit = 10) {
 
         global $wpdb;
 
-        $rewritten = $this->rewrite_query($query);
-        $query_emb = $this->generate_embedding($rewritten);
+        $query_emb = $this->generate_embedding($query, 'search_query');
 
         if (!$query_emb) return [];
 
@@ -141,14 +139,15 @@ class AI_Support_Chatbot_API {
     }
 
     /* =========================
-       🔥 HYBRID SEARCH (IMPROVED)
+       🔥 HYBRID SEARCH (OPTIMIZED)
     ========================= */
     private function hybrid_search($query, $limit = 10) {
 
+        // 🔥 rewrite only ONCE
         $rewritten = $this->rewrite_query($query);
         $combined  = $query . " " . $rewritten;
 
-        // Keyword search
+        // keyword search
         $wp_results = get_posts([
             's'              => $combined,
             'posts_per_page' => $limit * 2,
@@ -156,10 +155,10 @@ class AI_Support_Chatbot_API {
             'post_status'    => 'publish'
         ]);
 
-        // Semantic search
+        // semantic search
         $semantic = $this->semantic_search($combined, $limit * 2);
 
-        // Merge + unique
+        // merge unique
         $merged = array_merge($wp_results, $semantic);
         $unique = [];
 
@@ -180,7 +179,6 @@ class AI_Support_Chatbot_API {
         $context = '';
 
         foreach ($posts as $post) {
-
             $context .= "=== DOCUMENT ===\n";
             $context .= "Title: " . $post->post_title . "\n";
             $context .= "Content: " . wp_strip_all_tags(wp_trim_words($post->post_content, 500)) . "\n\n";
@@ -252,5 +250,46 @@ class AI_Support_Chatbot_API {
         }
 
         return $data['text'] ?? null;
+    }
+
+    public function ajax_generate_embeddings() {
+
+        if (empty($this->api_key)) {
+            wp_die('API key missing');
+        }
+
+        $posts = get_posts([
+            'post_type'      => $this->post_types,
+            'posts_per_page' => -1,
+            'post_status'    => 'publish',
+            'fields'         => 'ids',
+        ]);
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'ai_post_embeddings';
+
+        $count = 0;
+
+        foreach ($posts as $post_id) {
+
+            $post = get_post($post_id);
+
+            $content = $post->post_title . ' ' . wp_strip_all_tags($post->post_content);
+
+            // 🔥 IMPORTANT FIX
+            $embedding = $this->generate_embedding($content, 'search_document');
+
+            if (!$embedding) continue;
+
+            $wpdb->replace($table, [
+                'post_id'   => $post_id,
+                'embedding' => json_encode($embedding)
+            ]);
+
+            $count++;
+        }
+
+        echo "Embeddings generated: " . $count;
+        wp_die();
     }
 }
